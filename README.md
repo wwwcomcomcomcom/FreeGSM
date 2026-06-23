@@ -84,8 +84,27 @@ python -m dohproxy.main
 
 ## 설정
 
-대부분의 옵션은 `dohproxy/config.py`에 있고, 자주 바꾸는 값은 **다시 빌드하지 않고**
-환경 변수로 지정할 수 있습니다.
+설정 우선순위: **환경 변수 > `config.yml` > 내장 기본값**
+
+### config.yml (권장)
+
+실행 파일 옆이나 프로젝트 루트에 `config.yml`을 두면, 재빌드·환경 변수 없이
+값을 바꿀 수 있습니다. 파일이 없거나 항목이 없으면 기본값이 그대로 쓰입니다.
+
+```yaml
+# 있는 항목만 기본값을 덮어씁니다
+doh_url: https://8.8.8.8/dns-query   # Google DoH
+dpi_bypass: true                       # false 로 설정하면 443 릴레이 비활성화
+```
+
+지원 항목:
+
+| 항목 | 기본값 | 설명 |
+|------|--------|------|
+| `doh_url` | `https://1.0.0.1/dns-query` | DoH 업스트림 URL (반드시 IP로 지정) |
+| `dpi_bypass` | `true` | SNI 우회 릴레이 활성화 여부 |
+
+### 환경 변수 (env var가 config.yml보다 우선)
 
 ```powershell
 # DoH 업스트림 바꾸기

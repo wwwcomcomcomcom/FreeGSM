@@ -2,19 +2,47 @@
 
 Defaults give an MVP that "just works" when launched: Cloudflare 1.1.1.1 over
 DoH, fail-closed on errors, intercepting IPv4 UDP/53 and TCP/53.
+
+Priority (highest first): environment variables → config.yml → built-in defaults.
 """
 
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 
-def _env_flag(name: str, default: bool) -> bool:
+def _load_yaml_config() -> dict:
+    """Return key/value pairs from config.yml, or {} if absent/unreadable."""
+    candidates = [
+        Path(sys.executable).parent / "config.yml" if getattr(sys, "frozen", False) else None,
+        Path.cwd() / "config.yml",
+        Path(__file__).parent.parent / "config.yml",
+    ]
+    for p in candidates:
+        if p is not None and p.is_file():
+            try:
+                import yaml
+                with open(p, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+_yaml = _load_yaml_config()
+
+
+def _env_flag(name: str, yaml_key: str, default: bool) -> bool:
     val = os.environ.get(name)
-    if val is None:
-        return default
-    return val.strip().lower() not in ("0", "false", "no", "off", "")
+    if val is not None:
+        return val.strip().lower() not in ("0", "false", "no", "off", "")
+    if yaml_key in _yaml:
+        return bool(_yaml[yaml_key])
+    return default
+
 
 # --- DoH upstream -----------------------------------------------------------
 # We connect to the literal IP so resolving the DoH host never needs DNS
@@ -27,11 +55,8 @@ def _env_flag(name: str, default: bool) -> bool:
 # covers both IPs -- but 1.0.0.1 is usually not blocked, so it is the default.
 # With fail-closed, an unreachable upstream would break all DNS, so the app
 # probes the upstream at startup and refuses to run if it can't be reached.
-# Override without rebuilding via the FREEGSM_DOH_URL env var, e.g.:
-#   set FREEGSM_DOH_URL=https://1.1.1.1/dns-query   (Cloudflare primary)
-#   set FREEGSM_DOH_URL=https://8.8.8.8/dns-query   (Google)
-#   set FREEGSM_DOH_URL=https://9.9.9.9/dns-query   (Quad9)
-DOH_URL = os.environ.get("FREEGSM_DOH_URL", "https://1.0.0.1/dns-query")
+# Override without rebuilding via the FREEGSM_DOH_URL env var or config.yml.
+DOH_URL = os.environ.get("FREEGSM_DOH_URL") or _yaml.get("doh_url") or "https://1.0.0.1/dns-query"
 
 # Host part of the DoH upstream, when it is a literal IP. The DPI-bypass layer
 # uses this to leave our own DoH connection alone (never fragment the channel we
@@ -85,7 +110,7 @@ TCP_PROXY_PORT = 53533
 # the relay reframe the ClientHello. See https_proxy.py.
 #
 # Toggle with FREEGSM_DPI=0 to disable.
-DPI_BYPASS = _env_flag("FREEGSM_DPI", True)
+DPI_BYPASS = _env_flag("FREEGSM_DPI", "dpi_bypass", True)
 
 # Local relay that terminates redirected outbound TCP/443 connections, fragments
 # the ClientHello, and pipes the rest through to the real server.
