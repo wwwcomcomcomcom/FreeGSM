@@ -1,10 +1,16 @@
 # FreeGSM - Next FxxxGSM
 
+## 배경
+
 https://github.com/kimgh06/VPN-for-GSM 을 비공식적으로 계승합니다.
+[이전에 쓰던 FxxkGSM](https://github.com/kimgh06/VPN-for-GSM)도 사실 VPN으로 적혀있지만 VPN이 아닙니다.
+내부는 `goodbyedpi`라는 차단 우회용 오픈소스를 일부 변형하여 구현 되어 있습니다.
+FreeGSM은 소스코드가 상실된 FxxkGSM을 대체하고, DNS 차단과 SNI 기반 차단에 대한 이해도를 높이기 위한 학습을 목적으로 python으로 개발 되었습니다.
+
+## 기본 지식
 
 평문 DNS를 **DNS-over-HTTPS(DoH)** 로 자동 전환하고, **SNI 기반 차단(DPI)** 까지
 우회하는 Windows용 프로그램입니다. 실행해 두면 동작하고, 끄면 원래대로 돌아옵니다. (IPv4 전용)
-
 VPN이 아니기 때문에 실질적으로 ip가 변경되거나 핑이 크게 튀지 않습니다.
 따라서 ip가 차단당한 경우엔 사용할 수 없습니다.
 
