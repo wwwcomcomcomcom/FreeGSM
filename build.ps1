@@ -1,8 +1,8 @@
-# Build FreeGSM-DoH into a single self-elevating .exe.
+# Build FreeGSM into a single self-elevating .exe.
 #
 #   powershell -ExecutionPolicy Bypass -File .\build.ps1
 #
-# Output: dist\FreeGSM-DoH.exe  (prompts for UAC on launch; WinDivert needs admin)
+# Output: dist\FreeGSM.exe  (prompts for UAC on launch; WinDivert needs admin)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -25,7 +25,8 @@ $dest = "pydivert/windivert_dll"
 python -m PyInstaller `
     --onefile `
     --uac-admin `
-    --name FreeGSM-DoH `
+    --name FreeGSM `
+    --icon freegsm.ico `
     --clean --noconfirm `
     --add-binary "$dll;$dest" `
     --add-binary "$sys;$dest" `
@@ -34,4 +35,4 @@ python -m PyInstaller `
     --collect-submodules hyperframe `
     run.py
 
-Write-Host "`nDone -> dist\FreeGSM-DoH.exe" -ForegroundColor Green
+Write-Host "`nDone -> dist\FreeGSM.exe" -ForegroundColor Green

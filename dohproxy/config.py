@@ -1,4 +1,4 @@
-"""Runtime configuration for FreeGSM-DoH.
+"""Runtime configuration for FreeGSM.
 
 Defaults give an MVP that "just works" when launched: Cloudflare 1.1.1.1 over
 DoH, fail-closed on errors, intercepting IPv4 UDP/53 and TCP/53.

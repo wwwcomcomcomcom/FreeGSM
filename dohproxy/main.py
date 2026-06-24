@@ -38,7 +38,7 @@ def main() -> int:
         )
         return 1
 
-    log.info("FreeGSM-DoH starting. Upstream: %s  (fail-%s)",
+    log.info("FreeGSM starting. Upstream: %s  (fail-%s)",
              config.DOH_URL, "open" if config.FAIL_OPEN else "closed")
     if config.DPI_BYPASS:
         log.info("SNI/DPI bypass: ON (TLS record fragmentation via local relay "

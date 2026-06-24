@@ -1,4 +1,4 @@
-# FreeGSM-DoH
+# FreeGSM
 
 Windows app (Admin-only) that transparently upgrades the machine's plaintext DNS
 to **DNS-over-HTTPS** and defeats **SNI-based DPI blocking**, without changing any
@@ -74,7 +74,7 @@ the original destination; it's touched only from the capture thread, so no lock.
 pip install -r requirements.txt
 python -m dohproxy.main
 
-# Build single self-elevating exe -> dist\FreeGSM-DoH.exe (bundles WinDivert)
+# Build single self-elevating exe -> dist\FreeGSM.exe (bundles WinDivert)
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 # Verify DoH (app running, elevated)

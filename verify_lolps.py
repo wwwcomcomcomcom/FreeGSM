@@ -1,6 +1,6 @@
 """End-to-end check: can we actually reach a SNI-blocked site?
 
-Run this with FreeGSM-DoH already running (elevated) in another window. It does a
+Run this with FreeGSM already running (elevated) in another window. It does a
 plain HTTPS GET to https://lol.ps/ -- the same thing a browser does -- and
 reports whether the TLS handshake survived (i.e. the SNI/DPI bypass worked) and
 what the server answered.
@@ -31,7 +31,7 @@ def main() -> int:
     except httpx.ConnectError as exc:
         print(f"FAIL  connection error: {exc}")
         print("      (a reset here usually means SNI DPI is still cutting the "
-              "handshake -- is FreeGSM-DoH running, and DPI bypass on?)")
+              "handshake -- is FreeGSM running, and DPI bypass on?)")
         return 1
     except Exception as exc:  # noqa: BLE001
         print(f"FAIL  {type(exc).__name__}: {exc}")

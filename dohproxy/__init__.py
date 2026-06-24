@@ -1,4 +1,4 @@
-"""FreeGSM-DoH: a transparent DNS-over-HTTPS proxy for Windows.
+"""FreeGSM: a transparent DNS-over-HTTPS proxy for Windows.
 
 Intercepts plaintext DNS (UDP/53 and TCP/53) with WinDivert and re-resolves
 every query over DoH (default: Cloudflare 1.1.1.1), so the machine's DNS
