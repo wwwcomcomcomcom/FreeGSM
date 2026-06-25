@@ -1,0 +1,41 @@
+[package]
+name = "freegsm"
+version = "0.1.0"
+edition = "2021"
+description = "Transparent DNS-over-HTTPS + SNI/DPI bypass for Windows (WinDivert)"
+license = "MIT"
+
+[[bin]]
+name = "FreeGSM"
+path = "src/main.rs"
+
+[dependencies]
+# One WinDivert handle drives the whole capture loop. `vendored` compiles the
+# user-mode WinDivert.dll (v2.2.2) from source at build time; the matching signed
+# WinDivert64.sys is shipped next to the exe by build.ps1 (a kernel driver can't
+# be self-signed).
+windivert = { version = "0.6", features = ["vendored"] }
+windivert-sys = "0.10"          # ChecksumFlags for recalculate_checksums()
+
+# DoH client: HTTP/2 over rustls, blocking, connects to a literal IP and relies
+# on the cert's IP SAN for verification (see doh.rs). default-features off drops
+# the native-tls path.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "http2", "rustls-tls"] }
+
+socket2 = "0.5"                 # bind upstream sockets to the reserved source-port range
+url = "2"                       # extract host/IP from FREEGSM_DOH_URL
+log = "0.4"                     # logging facade (tiny custom logger in logging.rs)
+ctrlc = "3"                     # Ctrl+C -> graceful stop
+threadpool = "1.8"             # bounded worker pool for blocking UDP/53 DoH round-trips
+anyhow = "1"
+
+[build-dependencies]
+embed-resource = "2"            # embed requireAdministrator manifest + icon (best-effort)
+
+# Small, fast-to-load native binary -- the whole point of the rewrite.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

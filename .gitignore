@@ -8,3 +8,6 @@ venv/
 # PyInstaller build artifacts
 /build/
 /dist/
+
+# Rust
+/target/
