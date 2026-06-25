@@ -144,6 +144,10 @@ DPI_BYPASS = _env_flag("FREEGSM_DPI", "dpi_bypass", True)
 # the ClientHello, and pipes the rest through to the real server.
 HTTPS_PROXY_PORT = 53444
 
+# Local relay that transparently forwards redirected outbound UDP/443 packets
+# (QUIC / HTTP-3) to the real server.
+QUIC_PROXY_PORT = 53445
+
 # The relay's own upstream sockets (relay -> real server) are bound to source
 # ports in [UPSTREAM_PORT_BASE, UPSTREAM_PORT_BASE + UPSTREAM_PORT_COUNT). The
 # kernel filter excludes this range so those packets are never captured -- this
@@ -163,6 +167,7 @@ SPLIT_MAX = 64
 # Relay timeouts (seconds).
 HTTPS_CONNECT_TIMEOUT = 8.0
 HTTPS_FIRST_READ_TIMEOUT = 8.0
+QUIC_IDLE_TIMEOUT = 30.0
 
 # --- WinDivert --------------------------------------------------------------
 # DNS interception covers both IPv4 and IPv6. The DNS clauses capture three
@@ -183,14 +188,19 @@ _DNS_CLAUSES = (
 # DPI clauses (added only when bypass is on):
 #   * outbound TCP/443, EXCEPT our DoH upstream and EXCEPT the relay's reserved
 #     upstream source-port range -> redirected to the HTTPS splitting relay.
-#   * packets the relay emits (src port == HTTPS_PROXY_PORT) -> rewritten back to
-#     look like they came from the real server:443.
+#   * outbound UDP/443, EXCEPT the relay's reserved upstream source-port range
+#     -> redirected to the QUIC/HTTP-3 relay.
+#   * packets the relays emit (src port == HTTPS_PROXY_PORT / QUIC_PROXY_PORT)
+#     -> rewritten back to look like they came from the real server:443.
 _upstream_hi = UPSTREAM_PORT_BASE + UPSTREAM_PORT_COUNT - 1
 _doh_excl = f" and ip.DstAddr != {DOH_SERVER_IP}" if DOH_SERVER_IP else ""
 _DPI_CLAUSES = (
     f"(outbound and tcp.DstPort == 443{_doh_excl}"
     f" and (tcp.SrcPort < {UPSTREAM_PORT_BASE} or tcp.SrcPort > {_upstream_hi}))"
     f" or (tcp.SrcPort == {HTTPS_PROXY_PORT})"
+    f" or (outbound and udp.DstPort == 443"
+    f" and (udp.SrcPort < {UPSTREAM_PORT_BASE} or udp.SrcPort > {_upstream_hi}))"
+    f" or (udp.SrcPort == {QUIC_PROXY_PORT})"
 )
 
 DIVERT_FILTER = (

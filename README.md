@@ -178,6 +178,8 @@ ClientHello 레코드를 **두 개의 유효한 TLS 레코드**로 다시 내보
 - 443 릴레이는 모든 트래픽을 파이썬 사용자 영역 파이프로 중계합니다. 일반적인
   웹 브라우징엔 충분하지만 대용량 다운로드는 느릴 수 있습니다(`FREEGSM_DPI=0`으로
   끌 수 있음).
-- **QUIC / HTTP-3(UDP/443)은 처리하지 않습니다.** 네트워크가 QUIC를 SNI로 막는다면
-  브라우저에서 HTTP/3을 꺼서 TCP로 폴백시키세요(TCP는 우회됩니다).
+- **QUIC / HTTP-3(UDP/443)도 로컬 릴레이로 처리합니다.** 다만 현재는 QUIC 페이로드를
+  그대로 중계하므로, 네트워크 장비가 QUIC Initial 패킷에서 SNI를 읽어 차단하는 환경에서는
+  여전히 막힐 수 있습니다. 그런 경우엔 브라우저에서 HTTP/3을 꺼서 TCP로 폴백시키세요
+  (TCP는 TLS 레코드 분할로 우회됩니다).
 - SNI 차단 장비가 분할된 SNI 레코드를 조합한다면 차단을 우회할 수 없습니다. 이를 해결하기 위한 노력으로는 [ESNI](https://www.cloudflare.com/ko-kr/learning/ssl/what-is-encrypted-sni/)가 있습니다.

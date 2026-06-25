@@ -12,7 +12,9 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 2. **SNI/DPI bypass** — outbound TCP/443 is relayed through a local process that
    re-emits the TLS ClientHello as **two TLS records** (record-layer
    fragmentation, ported from Jigsaw's Intra), so a one-record SNI matcher can't
-   read the host while the server reassembles normally. Toggle: `FREEGSM_DPI`.
+   read the host while the server reassembles normally. Outbound UDP/443
+   (QUIC/HTTP-3) is also relayed through a local userspace socket. Toggle:
+   `FREEGSM_DPI`.
 
 ## Module map (`dohproxy/`)
 
@@ -25,6 +27,7 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 | `udp_handler.py` | UDP/53: runs on a **thread pool** (blocking DoH round-trip). Mutates the captured packet in place into its reply and injects inbound. |
 | `tcp_proxy.py` | TCP/53: WinDivert redirect to a local DoH-terminating server (`socketserver`). Packet rewriting is **inline on the capture thread**. |
 | `https_proxy.py` | TCP/443 SNI relay: same redirect trick; terminates the connection, fragments the ClientHello via `dpi.split_hello`, then dumb bidirectional pipe. |
+| `quic_proxy.py` | UDP/443 relay for QUIC/HTTP-3: redirects datagrams to a local UDP socket, forwards them to the original server from an excluded source-port range, and rewrites replies back to `server:443`. |
 | `dpi.py` | Pure TLS primitives: `split_hello` (the Intra port) + `sni_name` (logging only). No I/O. |
 | `dnsutil.py` | `describe_query` — human-readable query string for logs only. Never raises. |
 
@@ -34,6 +37,8 @@ Root: `run.py` (PyInstaller entry, wraps `main`), `verify_lolps.py` (SNI test), 
 
 ```
 outbound UDP dst:53          -> udp_handler.handle   (thread pool)
+UDP, if DPI on and
+  (outbound dst:443 OR src==QUIC_PROXY_PORT)   -> quic_proxy.handle_packet
 TCP, if DPI on and
   (outbound dst:443 OR src==HTTPS_PROXY_PORT) -> https_proxy.handle_packet
 TCP otherwise (dst:53 / src==TCP_PROXY_PORT)  -> tcp_proxy.handle_packet
@@ -65,8 +70,9 @@ the original destination; it's touched only from the capture thread, so no lock.
 - **Injected packets must not re-match the filter.** Redirected queries carry
   dst==proxy-port (not 53); rewritten replies carry src==53. Keep that property
   when editing handlers.
-- Handlers run in two regimes: **UDP = thread pool** (blocking DoH ok), **TCP
-  packet-rewrite = inline on the capture thread** (must stay fast, non-blocking).
+- Handlers run in two regimes: **UDP DoH = thread pool** (blocking DoH ok),
+  **UDP/TCP packet-rewrite = inline on the capture thread** (must stay fast,
+  non-blocking).
 
 ## Commands
 
@@ -94,14 +100,16 @@ No test suite or linter is configured.
   literal IP so resolving the DoH host never needs DNS — the cert's IP SAN covers
   it. Alternatives: `8.8.8.8` (Google), `9.9.9.9` (Quad9). `DOH_SERVER_IP` is
   derived from this to exclude our own channel from capture/fragmentation.
-- `FREEGSM_DPI=0` — disable the SNI/443 relay (DoH only).
+- `FREEGSM_DPI=0` — disable the TCP/443 and UDP/443 relays (DoH only).
 - `SPLIT_MIN`/`SPLIT_MAX` (6/64) — first-record size bounds, before the SNI.
-- Ports: `TCP_PROXY_PORT=53533`, `HTTPS_PROXY_PORT=53444`. `FAIL_OPEN`,
-  `WORKER_THREADS=32`, timeouts.
+- Ports: `TCP_PROXY_PORT=53533`, `HTTPS_PROXY_PORT=53444`,
+  `QUIC_PROXY_PORT=53445`. `FAIL_OPEN`, `WORKER_THREADS=32`, timeouts.
 
 ## Known gaps
 
-QUIC/HTTP-3 (UDP/443) is untouched — disable browser HTTP/3 if the network
-filters QUIC by SNI. No DNS cache. 443 relay pipes through userspace Python (fine
-for browsing, slow for bulk). The split assumes the whole ClientHello arrives in
-the first `recv` (true for a <16 KB hello).
+QUIC/HTTP-3 now goes through a local UDP relay, but the QUIC payload is still
+forwarded unchanged. If the network can parse SNI from QUIC Initial packets,
+HTTP/3 may still be blocked; in that case disable browser HTTP/3 to force TCP,
+which *is* record-fragmented here. 443 relays pipe through userspace Python
+(fine for browsing, slower for bulk). The TCP split assumes the whole
+ClientHello arrives in the first `recv` (true for a <16 KB hello).

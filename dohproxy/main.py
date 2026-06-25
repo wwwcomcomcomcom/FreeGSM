@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 
-from . import config, divert, doh, https_proxy, tcp_proxy
+from . import config, divert, doh, https_proxy, quic_proxy, tcp_proxy
 
 
 def _is_admin() -> bool:
@@ -42,7 +42,7 @@ def main() -> int:
              config.DOH_URL, "open" if config.FAIL_OPEN else "closed")
     if config.DPI_BYPASS:
         log.info("SNI/DPI bypass: ON (TLS record fragmentation via local relay "
-                 "on TCP/443)")
+                 "on TCP/443, UDP/443 relay for QUIC/HTTP-3)")
     else:
         log.info("SNI/DPI bypass: OFF (set FREEGSM_DPI=1 to enable)")
 
@@ -67,6 +67,7 @@ def main() -> int:
 
     tcp_servers = tcp_proxy.start_server()
     https_server = https_proxy.start_server() if config.DPI_BYPASS else None
+    quic_server = quic_proxy.start_server() if config.DPI_BYPASS else None
     diverter = divert.Diverter()
 
     # Run the (blocking) capture loop off the main thread so Ctrl+C stays
@@ -87,6 +88,8 @@ def main() -> int:
             server.shutdown()
         if https_server is not None:
             https_server.shutdown()
+        if quic_server is not None:
+            quic_server.shutdown()
         doh.stop()
         log.info("Stopped. Normal DNS restored.")
 
