@@ -18,5 +18,3 @@ dpi_bypass: true
 # DNS cache settings
 # ttl is in seconds. 86400 = 1 day. Set to 0 to disable the cache.
 dns_cache_ttl_sec: 86400
-# Optional: override the SQLite DB file path.
-# dns_cache_db: C:/Users/<you>/AppData/Local/FreeGSM/dns-cache.sqlite3

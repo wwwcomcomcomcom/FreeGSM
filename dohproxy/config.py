@@ -84,22 +84,9 @@ DOH_SERVER_IP = _doh_host()
 DOH_TIMEOUT = 5.0
 
 # --- DNS cache --------------------------------------------------------------
-# Cache full DNS query/response pairs in a local SQLite DB for a configurable
-# amount of time. TTL is seconds; 86400 = 1 day. Set to 0 to disable caching.
+# Cache DNS responses in memory for a configurable TTL.
+# TTL is seconds; 86400 = 1 day. Set to 0 to disable caching.
 DNS_CACHE_TTL_SEC = max(0, _env_int("FREEGSM_DNS_CACHE_TTL_SEC", "dns_cache_ttl_sec", 86400))
-
-
-def _default_dns_cache_db() -> Path:
-    base = os.environ.get("LOCALAPPDATA")
-    if base:
-        root = Path(base)
-    else:
-        root = Path.home() / ".local" / "share"
-    return root / "FreeGSM" / "dns-cache.sqlite3"
-
-
-_dns_cache_db_override = os.environ.get("FREEGSM_DNS_CACHE_DB") or _yaml.get("dns_cache_db")
-DNS_CACHE_DB = Path(_dns_cache_db_override).expanduser() if _dns_cache_db_override else _default_dns_cache_db()
 
 # --- Behaviour --------------------------------------------------------------
 # Fail-closed: when DoH fails, drop the original query rather than letting the
