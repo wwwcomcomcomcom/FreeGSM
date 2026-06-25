@@ -30,6 +30,7 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 | `quic_proxy.py` | UDP/443 relay for QUIC/HTTP-3: redirects datagrams to a local UDP socket, forwards them to the original server from an excluded source-port range, and rewrites replies back to `server:443`. |
 | `dpi.py` | Pure TLS primitives: `split_hello` (the Intra port) + `sni_name` (logging only). No I/O. |
 | `dnsutil.py` | `describe_query` — human-readable query string for logs only. Never raises. |
+| `dnscache.py` | `DnsCache`: SQLite-backed persistent DNS response cache. `get(query)->bytes\|None` / `put(query, response)`. Cache key strips the 2-byte DNS transaction ID (`query[2:]`) so different IDs for the same question still hit; `_apply_query_id` re-stamps the current ID onto the cached response. TTL enforced at read time; expired rows pruned on `get`/`put`. `ttl_sec<=0` disables entirely (all ops no-op). Thread-safe via `threading.Lock`; WAL mode for concurrent reads. |
 
 Root: `run.py` (PyInstaller entry, wraps `main`), `verify_lolps.py` (SNI test), `build.ps1`.
 
@@ -104,6 +105,11 @@ No test suite or linter is configured.
 - `SPLIT_MIN`/`SPLIT_MAX` (6/64) — first-record size bounds, before the SNI.
 - Ports: `TCP_PROXY_PORT=53533`, `HTTPS_PROXY_PORT=53444`,
   `QUIC_PROXY_PORT=53445`. `FAIL_OPEN`, `WORKER_THREADS=32`, timeouts.
+- `FREEGSM_DNS_CACHE_TTL_SEC` (`dns_cache_ttl_sec`) — DNS response cache TTL in
+  seconds. Default `86400` (1 day). Set to `0` to disable the cache entirely.
+- `FREEGSM_DNS_CACHE_DB` (`dns_cache_db`) — SQLite DB path. Default
+  `%LOCALAPPDATA%\FreeGSM\dns-cache.sqlite3`. Parent directory is created
+  automatically on first use.
 
 ## Known gaps
 
