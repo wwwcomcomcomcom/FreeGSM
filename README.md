@@ -7,6 +7,8 @@ https://github.com/kimgh06/VPN-for-GSM 을 비공식적으로 계승합니다.
 내부는 `goodbyedpi`라는 차단 우회용 오픈소스를 일부 변형하여 구현 되어 있습니다.
 FreeGSM은 소스코드가 상실된 FxxkGSM을 대체하고, DNS 차단과 SNI 기반 차단에 대한 이해도를 높이기 위한 학습을 목적으로 python으로 개발 되었습니다.
 
+> 메모리 사용량과 성능이 소폭 개선된 [Rustify 버전](https://github.com/wwwcomcomcomcom/FreeGSM/tree/rustify)을 함께 제공합니다.
+
 ## 기본 지식
 
 평문 DNS를 **DNS-over-HTTPS(DoH)** 로 자동 전환하고, **SNI 기반 차단(DPI)** 까지
