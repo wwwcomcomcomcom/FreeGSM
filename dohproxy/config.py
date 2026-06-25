@@ -1,7 +1,7 @@
 """Runtime configuration for FreeGSM.
 
 Defaults give an MVP that "just works" when launched: Cloudflare 1.1.1.1 over
-DoH, fail-closed on errors, intercepting IPv4 UDP/53 and TCP/53.
+DoH, fail-closed on errors, intercepting IPv4/IPv6 UDP/53 and TCP/53.
 
 Priority (highest first): environment variables → config.yml → built-in defaults.
 """
@@ -116,6 +116,7 @@ WORKER_THREADS = 32
 # interfaces. The handler rejects any peer that is not the local host itself,
 # so this is not an open resolver.
 TCP_BIND_HOST = "0.0.0.0"
+TCP_BIND_HOST_V6 = "::"
 TCP_PROXY_PORT = 53533
 
 # --- DPI / SNI-blocking bypass ----------------------------------------------
@@ -164,7 +165,8 @@ HTTPS_CONNECT_TIMEOUT = 8.0
 HTTPS_FIRST_READ_TIMEOUT = 8.0
 
 # --- WinDivert --------------------------------------------------------------
-# IPv4 only for the MVP. The DNS clauses capture three things:
+# DNS interception covers both IPv4 and IPv6. The DNS clauses capture three
+# things:
 #   1. outbound UDP/53 queries  -> synthesized DoH responses
 #   2. outbound TCP/53 queries  -> redirected to the local DoH proxy
 #   3. packets that proxy emits (src port == TCP_PROXY_PORT) -> rewritten so they
@@ -192,7 +194,6 @@ _DPI_CLAUSES = (
 )
 
 DIVERT_FILTER = (
-    f"ip and ({_DNS_CLAUSES}"
-    + (f" or {_DPI_CLAUSES}" if DPI_BYPASS else "")
-    + ")"
+    f"((ip or ipv6) and ({_DNS_CLAUSES}))"
+    + (f" or (ip and ({_DPI_CLAUSES}))" if DPI_BYPASS else "")
 )

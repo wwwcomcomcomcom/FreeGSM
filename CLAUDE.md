@@ -2,7 +2,8 @@
 
 Windows app (Admin-only) that transparently upgrades the machine's plaintext DNS
 to **DNS-over-HTTPS** and defeats **SNI-based DPI blocking**, without changing any
-system setting. Stop the process and everything reverts. IPv4 only.
+system setting. Stop the process and everything reverts. DNS interception covers
+IPv4 and IPv6.
 
 Two independent jobs, both driven by a single **WinDivert** capture loop:
 1. **DoH** — outbound DNS (UDP/53 + TCP/53) is re-resolved over an encrypted

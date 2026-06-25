@@ -65,7 +65,7 @@ def main() -> int:
         return 1
     log.info("DoH upstream reachable.")
 
-    server = tcp_proxy.start_server()
+    tcp_servers = tcp_proxy.start_server()
     https_server = https_proxy.start_server() if config.DPI_BYPASS else None
     diverter = divert.Diverter()
 
@@ -83,7 +83,8 @@ def main() -> int:
         log.info("Shutting down...")
     finally:
         diverter.stop()
-        server.shutdown()
+        for server in tcp_servers:
+            server.shutdown()
         if https_server is not None:
             https_server.shutdown()
         doh.stop()
