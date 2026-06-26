@@ -28,6 +28,7 @@ log = logging.getLogger("dohproxy.quic")
 # (src_addr, src_port) -> (orig_dst_addr, orig_dst_port). Written only on the
 # capture thread, read by UDP handler threads.
 _conn_map: dict[tuple[str, int], tuple[str, int]] = {}
+_conn_map_lock = threading.Lock()
 
 
 def handle_packet(packet, send) -> None:
@@ -41,7 +42,8 @@ def handle_packet(packet, send) -> None:
 
 
 def _redirect(packet, send) -> None:
-    _conn_map[(packet.src_addr, packet.src_port)] = (packet.dst_addr, packet.dst_port)
+    with _conn_map_lock:
+        _conn_map[(packet.src_addr, packet.src_port)] = (packet.dst_addr, packet.dst_port)
     packet.dst_addr = packet.src_addr
     packet.dst_port = config.QUIC_PROXY_PORT
     packet.direction = Direction.INBOUND
@@ -49,7 +51,8 @@ def _redirect(packet, send) -> None:
 
 
 def _rewrite_reply(packet, send) -> None:
-    server = _conn_map.get((packet.dst_addr, packet.dst_port))
+    with _conn_map_lock:
+        server = _conn_map.get((packet.dst_addr, packet.dst_port))
     if server is None:
         return
     packet.src_addr, packet.src_port = server
@@ -147,6 +150,10 @@ def _drop_session(client_addr: tuple[str, int], session: _Session) -> None:
         current = _sessions.get(client_addr)
         if current is session:
             _sessions.pop(client_addr, None)
+            with _conn_map_lock:
+                mapped = _conn_map.get(client_addr)
+                if mapped == session.server_addr:
+                    _conn_map.pop(client_addr, None)
     session.close()
 
 
@@ -182,7 +189,8 @@ class _Handler(socketserver.BaseRequestHandler):
             return
 
         client_addr = (self.client_address[0], self.client_address[1])
-        server_addr = _conn_map.get(client_addr)
+        with _conn_map_lock:
+            server_addr = _conn_map.get(client_addr)
         if server_addr is None:
             return
 

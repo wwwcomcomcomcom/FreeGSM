@@ -27,7 +27,7 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 | `udp_handler.py` | UDP/53: runs on a **thread pool** (blocking DoH round-trip). Mutates the captured packet in place into its reply and injects inbound. |
 | `tcp_proxy.py` | TCP/53: WinDivert redirect to a local DoH-terminating server (`socketserver`). Packet rewriting is **inline on the capture thread**. |
 | `https_proxy.py` | TCP/443 SNI relay: same redirect trick; terminates the connection, fragments the ClientHello via `dpi.split_hello`, then dumb bidirectional pipe. |
-| `quic_proxy.py` | UDP/443 relay for QUIC/HTTP-3: redirects datagrams to a local UDP socket, forwards them to the original server from an excluded source-port range, and rewrites replies back to `server:443`. |
+| `quic_proxy.py` | UDP/443 relay for QUIC/HTTP-3: redirects datagrams to a local UDP socket, forwards them to the original server from an excluded source-port range, and rewrites replies back to `server:443`. Session teardown also removes the client key from `_conn_map` so QUIC flows do not accumulate forever. |
 | `dpi.py` | Pure TLS primitives: `split_hello` (the Intra port) + `sni_name` (logging only). No I/O. |
 | `dnsutil.py` | `describe_query` — human-readable query string for logs only. Never raises. |
 | `dnscache.py` | `DnsCache`: In-memory DNS response cache. `get(query)->bytes\|None` / `put(query, response)`. Cache key strips the 2-byte DNS transaction ID (`query[2:]`) so different IDs for the same question still hit; `_apply_query_id` re-stamps the current ID onto the cached response. Cache expiry is the smaller of the configured ceiling and the response's minimum record TTL. Expired entries are pruned on `get`/`put`. `ttl_sec<=0` disables entirely (all ops no-op). Thread-safe via `threading.Lock`. Cache is lost on process exit. |
@@ -118,3 +118,8 @@ HTTP/3 may still be blocked; in that case disable browser HTTP/3 to force TCP,
 which *is* record-fragmented here. 443 relays pipe through userspace Python
 (fine for browsing, slower for bulk). The TCP split assumes the whole
 ClientHello arrives in the first `recv` (true for a <16 KB hello).
+
+QUIC/HTTP-3 uses a UDP session map that is shared with worker threads, so
+`quic_proxy.py` protects `_conn_map` with `_conn_map_lock`. When a session
+idles out or a send fails, `_drop_session()` removes the matching client key
+from both `_sessions` and `_conn_map`.
