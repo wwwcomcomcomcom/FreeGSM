@@ -16,5 +16,6 @@ doh_url: https://1.0.0.1/dns-query
 dpi_bypass: true
 
 # DNS cache settings
-# ttl is in seconds. 86400 = 1 day. Set to 0 to disable the cache.
-dns_cache_ttl_sec: 86400
+# ttl is in seconds. The effective lifetime is min(this value, the response's
+# minimum record TTL). Set to 0 to disable the cache.
+dns_cache_ttl_sec: 300
