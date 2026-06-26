@@ -44,12 +44,19 @@ def _env_flag(name: str, yaml_key: str, default: bool) -> bool:
     return default
 
 
+def _parse_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _env_int(name: str, yaml_key: str, default: int) -> int:
     val = os.environ.get(name)
     if val is not None:
-        return int(val)
+        return _parse_int(val, default)
     if yaml_key in _yaml:
-        return int(_yaml[yaml_key])
+        return _parse_int(_yaml[yaml_key], default)
     return default
 
 
