@@ -83,5 +83,6 @@ def resolve(query: bytes, *, use_cache: bool = True) -> bytes:
     body = resp.content
     if not body:
         raise ValueError("empty DoH response")
-    _cache.put(query, body)
+    if use_cache:
+        _cache.put(query, body)
     return body
