@@ -98,8 +98,11 @@ class _Handler(socketserver.BaseRequestHandler):
         # Only ever serve the local host itself. Redirected connections always
         # have peer IP == local IP, so this rejects any real external client
         # and prevents acting as an open resolver.
+        #
+        # `_ServerV6` binds with IPV6_V6ONLY=1, so a v4-mapped peer cannot
+        # reach this listener. That makes a plain equality check sufficient.
         local_ip = sock.getsockname()[0]
-        if self.client_address[0] not in {local_ip, "::ffff:" + local_ip if "." in local_ip else local_ip}:
+        if self.client_address[0] != local_ip:
             return
 
         while True:
