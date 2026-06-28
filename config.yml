@@ -14,3 +14,8 @@ doh_url: https://1.0.0.1/dns-query
 # false로 설정하면 DoH만 동작하고 443 릴레이는 비활성화됩니다.
 # 기본값: true
 dpi_bypass: true
+
+# DNS cache settings
+# ttl is in seconds. The effective lifetime is min(this value, the response's
+# minimum record TTL). Set to 0 to disable the cache.
+dns_cache_ttl_sec: 300

@@ -2,7 +2,8 @@
 
 Windows app (Admin-only) that transparently upgrades the machine's plaintext DNS
 to **DNS-over-HTTPS** and defeats **SNI-based DPI blocking**, without changing any
-system setting. Stop the process and everything reverts. IPv4 only.
+system setting. Stop the process and everything reverts. DNS interception covers
+IPv4 and IPv6.
 
 Two independent jobs, both driven by a single **WinDivert** capture loop:
 1. **DoH** — outbound DNS (UDP/53 + TCP/53) is re-resolved over an encrypted
@@ -11,7 +12,9 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 2. **SNI/DPI bypass** — outbound TCP/443 is relayed through a local process that
    re-emits the TLS ClientHello as **two TLS records** (record-layer
    fragmentation, ported from Jigsaw's Intra), so a one-record SNI matcher can't
-   read the host while the server reassembles normally. Toggle: `FREEGSM_DPI`.
+   read the host while the server reassembles normally. Outbound UDP/443
+   (QUIC/HTTP-3) is also relayed through a local userspace socket. Toggle:
+   `FREEGSM_DPI`.
 
 ## Module map (`dohproxy/`)
 
@@ -24,8 +27,10 @@ Two independent jobs, both driven by a single **WinDivert** capture loop:
 | `udp_handler.py` | UDP/53: runs on a **thread pool** (blocking DoH round-trip). Mutates the captured packet in place into its reply and injects inbound. |
 | `tcp_proxy.py` | TCP/53: WinDivert redirect to a local DoH-terminating server (`socketserver`). Packet rewriting is **inline on the capture thread**. |
 | `https_proxy.py` | TCP/443 SNI relay: same redirect trick; terminates the connection, fragments the ClientHello via `dpi.split_hello`, then dumb bidirectional pipe. |
+| `quic_proxy.py` | UDP/443 relay for QUIC/HTTP-3: redirects datagrams to a local UDP socket, forwards them to the original server from an excluded source-port range, and rewrites replies back to `server:443`. Session teardown also removes the client key from `_conn_map` so QUIC flows do not accumulate forever. |
 | `dpi.py` | Pure TLS primitives: `split_hello` (the Intra port) + `sni_name` (logging only). No I/O. |
 | `dnsutil.py` | `describe_query` — human-readable query string for logs only. Never raises. |
+| `dnscache.py` | `DnsCache`: In-memory DNS response cache. `get(query)->bytes\|None` / `put(query, response)`. Cache key strips the 2-byte DNS transaction ID (`query[2:]`) so different IDs for the same question still hit; `_apply_query_id` re-stamps the current ID onto the cached response. Cache expiry is the smaller of the configured ceiling and the response's minimum record TTL. Expired entries are pruned on `get`/`put`. `ttl_sec<=0` disables entirely (all ops no-op). Thread-safe via `threading.Lock`. Cache is lost on process exit. |
 
 Root: `run.py` (PyInstaller entry, wraps `main`), `verify_lolps.py` (SNI test), `build.ps1`.
 
@@ -33,6 +38,8 @@ Root: `run.py` (PyInstaller entry, wraps `main`), `verify_lolps.py` (SNI test), 
 
 ```
 outbound UDP dst:53          -> udp_handler.handle   (thread pool)
+UDP, if DPI on and
+  (outbound dst:443 OR src==QUIC_PROXY_PORT)   -> quic_proxy.handle_packet
 TCP, if DPI on and
   (outbound dst:443 OR src==HTTPS_PROXY_PORT) -> https_proxy.handle_packet
 TCP otherwise (dst:53 / src==TCP_PROXY_PORT)  -> tcp_proxy.handle_packet
@@ -64,8 +71,9 @@ the original destination; it's touched only from the capture thread, so no lock.
 - **Injected packets must not re-match the filter.** Redirected queries carry
   dst==proxy-port (not 53); rewritten replies carry src==53. Keep that property
   when editing handlers.
-- Handlers run in two regimes: **UDP = thread pool** (blocking DoH ok), **TCP
-  packet-rewrite = inline on the capture thread** (must stay fast, non-blocking).
+- Handlers run in two regimes: **UDP DoH = thread pool** (blocking DoH ok),
+  **UDP/TCP packet-rewrite = inline on the capture thread** (must stay fast,
+  non-blocking).
 
 ## Commands
 
@@ -93,14 +101,25 @@ No test suite or linter is configured.
   literal IP so resolving the DoH host never needs DNS — the cert's IP SAN covers
   it. Alternatives: `8.8.8.8` (Google), `9.9.9.9` (Quad9). `DOH_SERVER_IP` is
   derived from this to exclude our own channel from capture/fragmentation.
-- `FREEGSM_DPI=0` — disable the SNI/443 relay (DoH only).
+- `FREEGSM_DPI=0` — disable the TCP/443 and UDP/443 relays (DoH only).
 - `SPLIT_MIN`/`SPLIT_MAX` (6/64) — first-record size bounds, before the SNI.
-- Ports: `TCP_PROXY_PORT=53533`, `HTTPS_PROXY_PORT=53444`. `FAIL_OPEN`,
-  `WORKER_THREADS=32`, timeouts.
+- Ports: `TCP_PROXY_PORT=53533`, `HTTPS_PROXY_PORT=53444`,
+  `QUIC_PROXY_PORT=53445`. `FAIL_OPEN`, `WORKER_THREADS=32`, timeouts.
+- `FREEGSM_DNS_CACHE_TTL_SEC` (`dns_cache_ttl_sec`) — in-memory DNS cache TTL
+  ceiling in seconds. Effective lifetime is `min(setting, response minimum TTL)`.
+  Default `300`. Set to `0` to disable the cache entirely. Cache is lost on
+  process exit.
 
 ## Known gaps
 
-QUIC/HTTP-3 (UDP/443) is untouched — disable browser HTTP/3 if the network
-filters QUIC by SNI. No DNS cache. 443 relay pipes through userspace Python (fine
-for browsing, slow for bulk). The split assumes the whole ClientHello arrives in
-the first `recv` (true for a <16 KB hello).
+QUIC/HTTP-3 now goes through a local UDP relay, but the QUIC payload is still
+forwarded unchanged. If the network can parse SNI from QUIC Initial packets,
+HTTP/3 may still be blocked; in that case disable browser HTTP/3 to force TCP,
+which *is* record-fragmented here. 443 relays pipe through userspace Python
+(fine for browsing, slower for bulk). The TCP split assumes the whole
+ClientHello arrives in the first `recv` (true for a <16 KB hello).
+
+QUIC/HTTP-3 uses a UDP session map that is shared with worker threads, so
+`quic_proxy.py` protects `_conn_map` with `_conn_map_lock`. When a session
+idles out or a send fails, `_drop_session()` removes the matching client key
+from both `_sessions` and `_conn_map`.

@@ -1,7 +1,7 @@
 """Runtime configuration for FreeGSM.
 
 Defaults give an MVP that "just works" when launched: Cloudflare 1.1.1.1 over
-DoH, fail-closed on errors, intercepting IPv4 UDP/53 and TCP/53.
+DoH, fail-closed on errors, intercepting IPv4/IPv6 UDP/53 and TCP/53.
 
 Priority (highest first): environment variables → config.yml → built-in defaults.
 """
@@ -44,6 +44,22 @@ def _env_flag(name: str, yaml_key: str, default: bool) -> bool:
     return default
 
 
+def _parse_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, yaml_key: str, default: int) -> int:
+    val = os.environ.get(name)
+    if val is not None:
+        return _parse_int(val, default)
+    if yaml_key in _yaml:
+        return _parse_int(_yaml[yaml_key], default)
+    return default
+
+
 # --- DoH upstream -----------------------------------------------------------
 # We connect to the literal IP so resolving the DoH host never needs DNS
 # itself. Cloudflare's certificate includes a `1.1.1.1` IP SAN, so TLS
@@ -74,6 +90,12 @@ DOH_SERVER_IP = _doh_host()
 # dropping the query).
 DOH_TIMEOUT = 5.0
 
+# --- DNS cache --------------------------------------------------------------
+# Cache DNS responses in memory for a configurable TTL ceiling.
+# The effective cache lifetime is min(DNS_CACHE_TTL_SEC, the response's
+# minimum record TTL). Set to 0 to disable caching.
+DNS_CACHE_TTL_SEC = max(0, _env_int("FREEGSM_DNS_CACHE_TTL_SEC", "dns_cache_ttl_sec", 300))
+
 # --- Behaviour --------------------------------------------------------------
 # Fail-closed: when DoH fails, drop the original query rather than letting the
 # plaintext query escape. Set True to fail-open (leak plaintext on errors).
@@ -89,6 +111,7 @@ WORKER_THREADS = 32
 # interfaces. The handler rejects any peer that is not the local host itself,
 # so this is not an open resolver.
 TCP_BIND_HOST = "0.0.0.0"
+TCP_BIND_HOST_V6 = "::"
 TCP_PROXY_PORT = 53533
 
 # --- DPI / SNI-blocking bypass ----------------------------------------------
@@ -116,6 +139,10 @@ DPI_BYPASS = _env_flag("FREEGSM_DPI", "dpi_bypass", True)
 # the ClientHello, and pipes the rest through to the real server.
 HTTPS_PROXY_PORT = 53444
 
+# Local relay that transparently forwards redirected outbound UDP/443 packets
+# (QUIC / HTTP-3) to the real server.
+QUIC_PROXY_PORT = 53445
+
 # The relay's own upstream sockets (relay -> real server) are bound to source
 # ports in [UPSTREAM_PORT_BASE, UPSTREAM_PORT_BASE + UPSTREAM_PORT_COUNT). The
 # kernel filter excludes this range so those packets are never captured -- this
@@ -135,9 +162,11 @@ SPLIT_MAX = 64
 # Relay timeouts (seconds).
 HTTPS_CONNECT_TIMEOUT = 8.0
 HTTPS_FIRST_READ_TIMEOUT = 8.0
+QUIC_IDLE_TIMEOUT = 30.0
 
 # --- WinDivert --------------------------------------------------------------
-# IPv4 only for the MVP. The DNS clauses capture three things:
+# DNS interception covers both IPv4 and IPv6. The DNS clauses capture three
+# things:
 #   1. outbound UDP/53 queries  -> synthesized DoH responses
 #   2. outbound TCP/53 queries  -> redirected to the local DoH proxy
 #   3. packets that proxy emits (src port == TCP_PROXY_PORT) -> rewritten so they
@@ -154,18 +183,22 @@ _DNS_CLAUSES = (
 # DPI clauses (added only when bypass is on):
 #   * outbound TCP/443, EXCEPT our DoH upstream and EXCEPT the relay's reserved
 #     upstream source-port range -> redirected to the HTTPS splitting relay.
-#   * packets the relay emits (src port == HTTPS_PROXY_PORT) -> rewritten back to
-#     look like they came from the real server:443.
+#   * outbound UDP/443, EXCEPT the relay's reserved upstream source-port range
+#     -> redirected to the QUIC/HTTP-3 relay.
+#   * packets the relays emit (src port == HTTPS_PROXY_PORT / QUIC_PROXY_PORT)
+#     -> rewritten back to look like they came from the real server:443.
 _upstream_hi = UPSTREAM_PORT_BASE + UPSTREAM_PORT_COUNT - 1
 _doh_excl = f" and ip.DstAddr != {DOH_SERVER_IP}" if DOH_SERVER_IP else ""
 _DPI_CLAUSES = (
     f"(outbound and tcp.DstPort == 443{_doh_excl}"
     f" and (tcp.SrcPort < {UPSTREAM_PORT_BASE} or tcp.SrcPort > {_upstream_hi}))"
     f" or (tcp.SrcPort == {HTTPS_PROXY_PORT})"
+    f" or (outbound and udp.DstPort == 443"
+    f" and (udp.SrcPort < {UPSTREAM_PORT_BASE} or udp.SrcPort > {_upstream_hi}))"
+    f" or (udp.SrcPort == {QUIC_PROXY_PORT})"
 )
 
 DIVERT_FILTER = (
-    f"ip and ({_DNS_CLAUSES}"
-    + (f" or {_DPI_CLAUSES}" if DPI_BYPASS else "")
-    + ")"
+    f"((ip or ipv6) and ({_DNS_CLAUSES}))"
+    + (f" or (ip and ({_DPI_CLAUSES}))" if DPI_BYPASS else "")
 )

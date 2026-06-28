@@ -12,6 +12,7 @@ import logging
 import httpx
 
 from . import config
+from .dnscache import DnsCache
 
 log = logging.getLogger("dohproxy.doh")
 
@@ -24,6 +25,7 @@ _HEADERS = {
 # the per-query cost is just a multiplexed request. httpx.Client is safe to use
 # from multiple threads concurrently.
 _client: httpx.Client | None = None
+_cache = DnsCache()
 
 
 def start() -> None:
@@ -36,6 +38,7 @@ def start() -> None:
             # Keep the connection pool small but warm.
             limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
         )
+    _cache.start()
 
 
 def stop() -> None:
@@ -43,6 +46,7 @@ def stop() -> None:
     if _client is not None:
         _client.close()
         _client = None
+    _cache.stop()
 
 
 # A minimal DNS query for "example.com" A, used to probe upstream reachability.
@@ -55,18 +59,23 @@ _PROBE_QUERY = (
 def probe() -> tuple[bool, str]:
     """Check the DoH upstream is reachable. Returns (ok, detail)."""
     try:
-        resolve(_PROBE_QUERY)
+        resolve(_PROBE_QUERY, use_cache=False)
         return True, "ok"
     except Exception as exc:  # noqa: BLE001
         return False, f"{type(exc).__name__}: {exc}"
 
 
-def resolve(query: bytes) -> bytes:
+def resolve(query: bytes, *, use_cache: bool = True) -> bytes:
     """Resolve a raw DNS query (wire format) via DoH and return the raw
     response (wire format).
 
     Raises on any failure so callers can fail closed (drop the query).
     """
+    if use_cache:
+        cached = _cache.get(query)
+        if cached is not None:
+            log.debug("DNS cache hit (%d bytes)", len(query))
+            return cached
     if _client is None:
         raise RuntimeError("DoH client not started")
     resp = _client.post(config.DOH_URL, content=query)
@@ -74,4 +83,6 @@ def resolve(query: bytes) -> bytes:
     body = resp.content
     if not body:
         raise ValueError("empty DoH response")
+    if use_cache:
+        _cache.put(query, body)
     return body

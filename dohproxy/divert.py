@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pydivert
 
-from . import config, https_proxy, tcp_proxy, udp_handler
+from . import config, https_proxy, quic_proxy, tcp_proxy, udp_handler
 
 log = logging.getLogger("dohproxy.divert")
 
@@ -41,7 +41,12 @@ class Diverter:
                 log.debug("send failed: %s", exc)
 
     def _dispatch(self, packet) -> None:
-        if packet.udp is not None and packet.dst_port == 53 and packet.is_outbound:
+        if packet.udp is not None and config.DPI_BYPASS and (
+            (packet.is_outbound and packet.dst_port == 443)
+            or packet.src_port == config.QUIC_PROXY_PORT
+        ):
+            quic_proxy.handle_packet(packet, self._send)
+        elif packet.udp is not None and packet.dst_port == 53 and packet.is_outbound:
             self._pool.submit(udp_handler.handle, packet, self._send)
         elif packet.tcp is not None:
             # HTTPS splitting relay: outbound :443 (to redirect) and the relay's

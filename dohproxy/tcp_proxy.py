@@ -21,6 +21,7 @@ locking. The local server resolves each query over DoH on its own worker thread.
 from __future__ import annotations
 
 import logging
+import socket
 import socketserver
 import struct
 import threading
@@ -97,7 +98,11 @@ class _Handler(socketserver.BaseRequestHandler):
         # Only ever serve the local host itself. Redirected connections always
         # have peer IP == local IP, so this rejects any real external client
         # and prevents acting as an open resolver.
-        if self.client_address[0] != sock.getsockname()[0]:
+        #
+        # `_ServerV6` binds with IPV6_V6ONLY=1, so a v4-mapped peer cannot
+        # reach this listener. That makes a plain equality check sufficient.
+        local_ip = sock.getsockname()[0]
+        if self.client_address[0] != local_ip:
             return
 
         while True:
@@ -127,8 +132,25 @@ class _Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-def start_server() -> socketserver.ThreadingTCPServer:
-    server = _Server((config.TCP_BIND_HOST, config.TCP_PROXY_PORT), _Handler)
-    threading.Thread(target=server.serve_forever, name="tcp-proxy", daemon=True).start()
+class _ServerV6(_Server):
+    address_family = socket.AF_INET6
+
+    def server_bind(self) -> None:
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        super().server_bind()
+
+
+def start_server() -> list[socketserver.ThreadingTCPServer]:
+    servers: list[socketserver.ThreadingTCPServer] = []
+
+    server_v4 = _Server((config.TCP_BIND_HOST, config.TCP_PROXY_PORT), _Handler)
+    servers.append(server_v4)
+    threading.Thread(target=server_v4.serve_forever, name="tcp-proxy-v4", daemon=True).start()
     log.info("TCP DoH proxy listening on %s:%d", config.TCP_BIND_HOST, config.TCP_PROXY_PORT)
-    return server
+
+    server_v6 = _ServerV6((config.TCP_BIND_HOST_V6, config.TCP_PROXY_PORT), _Handler)
+    servers.append(server_v6)
+    threading.Thread(target=server_v6.serve_forever, name="tcp-proxy-v6", daemon=True).start()
+    log.info("TCP DoH proxy listening on [%s]:%d", config.TCP_BIND_HOST_V6, config.TCP_PROXY_PORT)
+
+    return servers
