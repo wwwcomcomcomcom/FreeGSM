@@ -8,3 +8,10 @@ venv/
 # PyInstaller build artifacts
 /build/
 /dist/
+*.spec
+
+# macOS Finder metadata
+.DS_Store
+
+# macOS: fetched third-party tun2socks binary (downloaded by run_macos.sh)
+/bin/

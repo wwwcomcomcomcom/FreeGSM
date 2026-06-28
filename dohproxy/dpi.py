@@ -25,6 +25,13 @@ _TLS_HANDSHAKE = 0x16
 _TLS_VERSIONS = {0x0301, 0x0302, 0x0303, 0x0304}
 
 
+def is_tls_handshake(payload: bytes) -> bool:
+    """True if ``payload`` begins with a TLS handshake record (content type
+    0x16) -- i.e. it could be a ClientHello worth splitting. Lets callers avoid
+    reaching into this module's private ``_TLS_HANDSHAKE`` constant."""
+    return payload[:1] == bytes([_TLS_HANDSHAKE])
+
+
 def tls_record_len(h: bytes) -> tuple[int, bool]:
     """Return ``(record_body_len, ok)`` for a buffer that begins with a TLS
     record header, mirroring Intra's ``getTLSClientHelloRecordLen``."""
@@ -54,6 +61,15 @@ def split_hello(hello: bytes, min_split: int = 6, max_split: int = 64) -> list[b
         split_len = limit
 
     record_len, ok = tls_record_len(hello)
+    # If the whole record isn't buffered yet (a large ClientHello -- e.g. ECH or
+    # many extensions -- spread across multiple TCP segments), fragmenting would
+    # emit a second record header whose length field lies about the bytes present,
+    # corrupting the stream while the leftover bytes get forwarded raw. Forward
+    # the ClientHello untouched instead: no DPI bypass for this connection, but a
+    # byte-identical stream that completes the handshake normally.
+    if ok and len(hello) < record_len + 5:
+        return [hello]
+
     record_split_len = split_len - 5
     if not ok or record_split_len <= 0 or record_split_len >= record_len:
         # Not a fragmentable TLS record: just split the bytes in two.
