@@ -67,9 +67,12 @@ def resolve(query: bytes) -> bytes:
 
     Raises on any failure so callers can fail closed (drop the query).
     """
-    if _client is None:
+    # Snapshot the shared client so a concurrent stop() (which sets _client to
+    # None) during shutdown can't turn this into an AttributeError mid-call.
+    client = _client
+    if client is None:
         raise RuntimeError("DoH client not started")
-    resp = _client.post(config.DOH_URL, content=query)
+    resp = client.post(config.DOH_URL, content=query)
     resp.raise_for_status()
     body = resp.content
     if not body:

@@ -8,6 +8,7 @@ Priority (highest first): environment variables → config.yml → built-in defa
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import sys
 from pathlib import Path
@@ -37,8 +38,11 @@ _yaml = _load_yaml_config()
 
 def _env_flag(name: str, yaml_key: str, default: bool) -> bool:
     val = os.environ.get(name)
-    if val is not None:
-        return val.strip().lower() not in ("0", "false", "no", "off", "")
+    # An empty/whitespace-only env var is treated as "unset" (fall through to
+    # yaml/default) rather than as an explicit "false" -- an accidentally-empty
+    # FREEGSM_DPI= should not silently disable a feature.
+    if val is not None and val.strip() != "":
+        return val.strip().lower() not in ("0", "false", "no", "off")
     if yaml_key in _yaml:
         return bool(_yaml[yaml_key])
     return default
@@ -63,9 +67,17 @@ DOH_URL = os.environ.get("FREEGSM_DOH_URL") or _yaml.get("doh_url") or "https://
 # depend on). None if DOH_URL points at a hostname instead of an IP.
 def _doh_host() -> str | None:
     host = urlparse(DOH_URL).hostname
-    if host and all(part.isdigit() for part in host.split(".")) and host.count(".") == 3:
-        return host
-    return None
+    if not host:
+        return None
+    # Only a *literal IPv4 address* can be excluded from capture/fragmentation.
+    # Validate strictly (str.isdigit() accepts unicode digits, and a dotted
+    # heuristic accepts 999.999.999.999) so a hostname upstream cleanly returns
+    # None and the caller can degrade rather than silently fragmenting DoH.
+    try:
+        ipaddress.IPv4Address(host)
+    except ValueError:
+        return None
+    return host
 
 
 DOH_SERVER_IP = _doh_host()
@@ -90,6 +102,36 @@ WORKER_THREADS = 32
 # so this is not an open resolver.
 TCP_BIND_HOST = "0.0.0.0"
 TCP_PROXY_PORT = 53533
+
+# --- macOS DoH-first resolver -----------------------------------------------
+# macOS has no WinDivert. The macOS port (dohproxy/macos/) instead runs a local
+# DoH-terminating resolver and points the system DNS at it (reverted on exit).
+# Binding loopback:53 requires root; binding 127.0.0.1 (not 0.0.0.0) inherently
+# rejects any non-local client, so it can never act as an open resolver.
+LOCAL_DNS_HOST = "127.0.0.1"
+LOCAL_DNS_PORT = 53
+
+# --- macOS SNI/DPI bypass (utun + tun2socks + local SOCKS) -------------------
+# pf cannot redirect local outbound traffic, so the macOS DPI bypass routes
+# outbound TCP through a utun device handled by tun2socks, which terminates each
+# flow and forwards it to this local SOCKS5 proxy. The proxy fragments the
+# TLS ClientHello (dpi.split_hello) on :443 and otherwise pipes through.
+# The proxy's upstream sockets are pinned to the physical interface via
+# IP_BOUND_IF so they bypass utun (no routing loop) -- the macOS analogue of the
+# WinDivert reserved-port-range exclusion.
+SOCKS_PROXY_HOST = "127.0.0.1"
+SOCKS_PROXY_PORT = 1080
+
+# tun2socks device + its point-to-point address. The default route is split into
+# 0.0.0.0/1 + 128.0.0.0/1 pointing at this device so it overrides 0.0.0.0/0
+# without deleting the user's real default route (standard VPN trick; both
+# halves vanish on teardown). 198.18.0.0/15 is the RFC2544 benchmarking range,
+# safe to use for a local tunnel endpoint.
+TUN_DEVICE = "utun123"
+TUN_ADDR = "198.18.0.1"
+# Path to the tun2socks binary. Override via FREEGSM_TUN2SOCKS; otherwise the
+# launcher looks on PATH and in ./bin.
+TUN2SOCKS_PATH = os.environ.get("FREEGSM_TUN2SOCKS") or _yaml.get("tun2socks_path") or "tun2socks"
 
 # --- DPI / SNI-blocking bypass ----------------------------------------------
 # DoH only protects DNS. Many networks (notably Korean school/ISP filters) ALSO
@@ -135,6 +177,18 @@ SPLIT_MAX = 64
 # Relay timeouts (seconds).
 HTTPS_CONNECT_TIMEOUT = 8.0
 HTTPS_FIRST_READ_TIMEOUT = 8.0
+# Idle timeout for a relayed connection's bidirectional pump: a half-open or
+# stalled connection is reaped after this many seconds so it can't leak a thread
+# + two sockets forever. Generous enough for slow/large downloads.
+RELAY_IDLE_TIMEOUT = 300.0
+# Idle timeout for a DNS-over-TCP connection to the local resolver. DNS/TCP
+# clients reconnect freely (RFC 7766), so a stalled stream can be dropped.
+DNS_TCP_IDLE_TIMEOUT = 30.0
+
+# Upper bound on the connection-redirect map. Entries are normally removed on
+# RST/FIN, but a connection that dies without a captured teardown would leak one
+# forever; when the map exceeds this, the oldest entries are evicted.
+CONN_MAP_MAX = 8192
 
 # --- WinDivert --------------------------------------------------------------
 # IPv4 only for the MVP. The DNS clauses capture three things:

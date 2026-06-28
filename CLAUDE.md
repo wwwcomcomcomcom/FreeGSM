@@ -104,3 +104,13 @@ QUIC/HTTP-3 (UDP/443) is untouched — disable browser HTTP/3 if the network
 filters QUIC by SNI. No DNS cache. 443 relay pipes through userspace Python (fine
 for browsing, slow for bulk). The split assumes the whole ClientHello arrives in
 the first `recv` (true for a <16 KB hello).
+
+**macOS DoH coverage differs from Windows.** Windows captures *all* outbound
+UDP/53 + TCP/53 regardless of destination, so apps with a hardcoded DNS server
+are intercepted too. The macOS port instead repoints the *system* resolver at
+loopback, so it only covers apps that use the system resolver. An app that talks
+straight to a hardcoded plaintext DNS server (e.g. `8.8.8.8:53`) bypasses DoH —
+and with DPI *on* its UDP/53 may even break, because the local SOCKS5 proxy
+implements only CONNECT (no UDP ASSOCIATE), so tun2socks can't forward that
+datagram. Practically fine (most apps use the system resolver), but it is a real
+protection-scope difference worth knowing.
