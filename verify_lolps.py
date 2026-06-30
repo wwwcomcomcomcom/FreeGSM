@@ -26,7 +26,8 @@ def main() -> int:
     try:
         # http2 off keeps the request a single, ordinary TLS ClientHello so this
         # exercises exactly the path the bypass targets.
-        with httpx.Client(timeout=10.0, follow_redirects=True, verify=True) as c:
+        with httpx.Client(timeout=10.0, follow_redirects=True, verify=True,
+                          http2=False) as c:
             r = c.get(URL, headers={"User-Agent": "FreeGSM-verify/1.0"})
     except httpx.ConnectError as exc:
         print(f"FAIL  connection error: {exc}")

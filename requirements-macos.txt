@@ -1,0 +1,6 @@
+# macOS (DoH-only) dependencies.
+# The Windows requirements.txt pins pydivert, which has no macOS build; the
+# macOS port (dohproxy/macos/) needs no packet-capture driver, only the DoH
+# client stack.
+httpx[http2]>=0.28
+pyyaml>=6.0
